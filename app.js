@@ -1,4 +1,20 @@
-// Initial Data Structure
+// --- Firebase Configuration ---
+// استبدل الإعدادات أدناه من مشروعك في Firebase Console
+const firebaseConfig = {
+    apiKey: "AIzaSyBnaCO886pZQWvmFS8DKrqC1jqDrdT9_CM",
+    authDomain: "siond-a6c34.firebaseapp.com",
+    projectId: "siond-a6c34",
+    storageBucket: "siond-a6c34.firebasestorage.app",
+    messagingSenderId: "875547108455",
+    appId: "1:875547108455:web:47c497591012e6299be0c2",
+    measurementId: "G-4L30TTMCT3"
+};
+
+// Initialize Firebase
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+// Initial Data Structure (Empty initially, will be loaded from Firebase)
 let appData = {
     grades: {
         '3mid': { title: 'الصف الثالث الإعدادي', groups: ['مجموعة 1 (السبت)', 'مجموعة 2 (الثلاثاء)'] },
@@ -6,18 +22,9 @@ let appData = {
         '2sec': { title: 'الصف الثاني الثانوي', groups: ['مجموعة 1 (الاثنين)', 'مجموعة 2 (الأربعاء)'] },
         '3sec': { title: 'الصف الثالث الثانوي', groups: ['مجموعة 1 (السبت)', 'مجموعة 2 (الخميس)'] }
     },
-    lessons: JSON.parse(localStorage.getItem('math_lessons')) || [
-        { id: 1, url: 'https://www.youtube.com/watch?v=1uS5b8Vw7yA', title: 'مقدمة في الجبر (أولى ثانوي)', grade: '1sec', desc: 'شرح مفصل لأساسيات الجبر' },
-        { id: 2, url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', title: 'حساب المثلثات (تانية ثانوي)', grade: '2sec', desc: 'قوانين الجيب وجيب التمام' },
-        { id: 3, url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', title: 'التفاضل والتكامل (تالتة ثانوي)', grade: '3sec', desc: 'نهايات الدوال المرتبطة بالعدد e' }
-    ],
-    exams: JSON.parse(localStorage.getItem('math_exams')) || [
-        { id: 'ex1', title: 'اختبار شهر أكتوبر - جِبِر', grade: '1sec', questions: [1, 2, 3, 4, 5] },
-        { id: 'ex2', title: 'اختبار شامل - هندسة فراغية', grade: '3sec', questions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] }
-    ],
-    files: JSON.parse(localStorage.getItem('math_files')) || [
-        { id: 1, title: 'مذكرة المراجعة النهائية', type: 'pdf', grade: '3sec' }
-    ]
+    lessons: [],
+    exams: [],
+    files: []
 };
 
 // State
@@ -28,7 +35,10 @@ let currentState = {
 };
 
 // Initialize
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    // Load data from Firebase
+    await loadInitialData();
+
     // Hide Loader
     setTimeout(() => {
         document.getElementById('loader').style.opacity = '0';
@@ -37,6 +47,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
     initEventListeners();
 });
+
+async function loadInitialData() {
+    try {
+        const lessonsSnap = await db.collection('lessons').get();
+        appData.lessons = lessonsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        const examsSnap = await db.collection('exams').get();
+        appData.exams = examsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        const filesSnap = await db.collection('files').get();
+        appData.files = filesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    } catch (error) {
+        console.error("Error loading data from Firebase:", error);
+    }
+}
 
 function initEventListeners() {
     // Admin Modal
@@ -61,6 +86,27 @@ function initEventListeners() {
             const target = btn.dataset.tab;
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
             document.getElementById(`${target}-tab`).classList.add('active');
+        };
+    });
+    // Mobile Menu Toggle
+    const menuToggle = document.querySelector('.mobile-menu-toggle');
+    const navLinks = document.querySelector('.nav-links');
+    if (menuToggle) {
+        menuToggle.onclick = () => {
+            navLinks.classList.toggle('active');
+            const icon = menuToggle.querySelector('i');
+            icon.classList.toggle('fa-bars');
+            icon.classList.toggle('fa-times');
+        };
+    }
+
+    // Close menu when clicking link
+    document.querySelectorAll('.nav-links a').forEach(link => {
+        link.onclick = () => {
+            navLinks.classList.remove('active');
+            const icon = menuToggle.querySelector('i');
+            icon.classList.add('fa-bars');
+            icon.classList.remove('fa-times');
         };
     });
 }
@@ -364,7 +410,7 @@ function addNewQuestionBlock() {
     container.appendChild(block);
 }
 
-function saveNewLesson() {
+async function saveNewLesson() {
     const url = document.getElementById('lesson-url').value;
     const title = document.getElementById('lesson-title').value;
     const desc = document.getElementById('lesson-desc').value;
@@ -372,16 +418,28 @@ function saveNewLesson() {
 
     if (!url || !title) return alert('برجاء ملء البيانات');
 
-    const newLesson = { id: Date.now(), url, title, grade, desc: desc || 'درس فيديو توضيحي' };
-    appData.lessons.push(newLesson);
-    localStorage.setItem('math_lessons', JSON.stringify(appData.lessons));
+    const newLesson = {
+        url,
+        title,
+        grade,
+        desc: desc || 'درس فيديو توضيحي',
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
 
-    alert('تم الحفظ بنجاح');
-    if (currentState.selectedGrade === grade) renderContent();
-    renderAdminSection('add-lesson');
+    try {
+        const docRef = await db.collection('lessons').add(newLesson);
+        newLesson.id = docRef.id;
+        appData.lessons.push(newLesson);
+        alert('تم الحفظ بنجاح في السحابة');
+        if (currentState.selectedGrade === grade) renderContent();
+        renderAdminSection('add-lesson');
+    } catch (error) {
+        console.error("Error saving lesson:", error);
+        alert('فشل الحفظ في قاعدة البيانات');
+    }
 }
 
-function saveNewExam() {
+async function saveNewExam() {
     const title = document.getElementById('exam-title').value;
     const grade = document.getElementById('exam-grade').value;
     const blocks = document.querySelectorAll('.question-block');
@@ -406,14 +464,25 @@ function saveNewExam() {
 
     if (questions.length === 0) return alert('برجاء إضافة سؤال واحد على الأقل مع كافة بياناته');
 
-    const newExam = { id: 'ex' + Date.now(), title, grade, questions };
-    appData.exams.push(newExam);
-    localStorage.setItem('math_exams', JSON.stringify(appData.exams));
+    const newExam = {
+        title,
+        grade,
+        questions,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
 
-    alert('تم حفظ الاختبار بنجاح');
-    if (currentState.selectedGrade === grade) renderContent();
-    questionCount = 1;
-    renderAdminSection('add-exam');
+    try {
+        const docRef = await db.collection('exams').add(newExam);
+        newExam.id = docRef.id;
+        appData.exams.push(newExam);
+        alert('تم حفظ الاختبار بنجاح في السحابة');
+        if (currentState.selectedGrade === grade) renderContent();
+        questionCount = 1;
+        renderAdminSection('add-exam');
+    } catch (error) {
+        console.error("Error saving exam:", error);
+        alert('حدث خطأ أثناء حفظ الاختبار');
+    }
 }
 
 function logout() {
